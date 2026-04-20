@@ -22,8 +22,8 @@ align-items:center;
 height:100vh;
 overflow:hidden;
 cursor:pointer;
-color:#fff;
 font-family:'Montserrat',sans-serif;
+color:#fff;
 }
 
 .container{
@@ -35,9 +35,11 @@ text-align:center;
 }
 
 #city{
-font-size:14px;
+position:absolute;
+bottom:20px;
+left:20px;
+font-size:18px;
 color:#777;
-margin-bottom:8px;
 }
 
 #speed{
@@ -56,6 +58,7 @@ margin-top:5px;
 transform:rotate(180deg) scaleX(-1);
 }
 
+/* speed colors */
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
@@ -74,6 +77,17 @@ width:8px;
 height:8px;
 border-radius:50%;
 background:#333;
+}
+
+/* HUD mode */
+.hud #limit,
+.hud #gps,
+.hud #city{
+display:none;
+}
+
+.hud #speed{
+font-size:min(90vw,90vh);
 }
 </style>
 </head>
@@ -104,11 +118,11 @@ let hud=false
 let lastValidSpeed=0
 let gpsLostAt=0
 
-let lastCityFetch=0
-
 document.body.addEventListener("click",()=>{
 flipped=!flipped
 hud=!hud
+
+document.body.classList.toggle("hud",hud)
 
 speedEl.classList.toggle("flipped",flipped)
 limitEl.classList.toggle("flipped",flipped)
@@ -136,6 +150,12 @@ dots[2].style.background="green"
 function setColor(speed,limit){
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
 
+// 🚫 GPS override ALWAYS white
+if(speed==="GPS"){
+speedEl.classList.add("speed-ok")
+return
+}
+
 if(!limit){
 speedEl.classList.add("speed-ok")
 return
@@ -158,6 +178,7 @@ return data.address.city || data.address.town || data.address.village || ""
 
 let speedLimit=null
 let lastLimitFetch=0
+let lastCityFetch=0
 
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
@@ -185,7 +206,6 @@ return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))
 
 let lastPos=null
 let lastTime=null
-let start=Date.now()
 
 navigator.geolocation.watchPosition(async pos=>{
 const now=Date.now()
@@ -203,29 +223,35 @@ const dt=(now-lastTime)/1000
 speed=(dist/dt)*3.6
 }
 
-// GPS HOLD LOGIC
+// GPS HOLD
 if(speed>0){
 lastValidSpeed=speed
 gpsLostAt=0
 }else{
 if(!gpsLostAt) gpsLostAt=now
+
 if(now-gpsLostAt<3000){
 speed=lastValidSpeed
 }else{
 speedEl.textContent="🚫 GPS"
+setColor("GPS")
 return
 }
 }
 
 speedEl.textContent=Math.round(speed)
 
-// LIMIT
-let limit=await fetchSpeedLimit(c.latitude,c.longitude)
-limitEl.textContent=limit?`MAX ${limit}`:"--"
-
+// LIMIT ONLY IN NORMAL MODE
+let limit=null
+if(!hud){
+limit=await fetchSpeedLimit(c.latitude,c.longitude)
+limitEl.textContent=limit?limit:"--"
 setColor(speed,limit)
+}else{
+setColor(speed,null)
+}
 
-// CITY (slow update)
+// CITY (normal mode only)
 if(!hud && now-lastCityFetch>20000){
 lastCityFetch=now
 getCity(c.latitude,c.longitude).then(city=>{
@@ -236,7 +262,10 @@ if(city) cityEl.textContent=city
 lastPos=c
 lastTime=now
 
-},()=>speedEl.textContent="🚫 GPS",{
+},()=>{
+speedEl.textContent="🚫 GPS"
+setColor("GPS")
+},{
 enableHighAccuracy:true,
 maximumAge:0,
 timeout:3000
