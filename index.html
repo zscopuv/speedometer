@@ -46,6 +46,7 @@ color:#777;
 font-weight:700;
 font-size:min(35vw,35vh);
 line-height:1;
+color:#fff;
 }
 
 #limit{
@@ -58,10 +59,12 @@ margin-top:5px;
 transform:rotate(180deg) scaleX(-1);
 }
 
+/* NORMAL MODE COLORS ONLY */
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
 
+/* GPS dots */
 #gps{
 position:absolute;
 bottom:20px;
@@ -86,37 +89,12 @@ display:none;
 
 .hud #speed{
 font-size:min(90vw,90vh);
-}
-
-/* WAKE BUTTON OVERLAY */
-#start{
-position:fixed;
-inset:0;
-background:#000;
-display:flex;
-justify-content:center;
-align-items:center;
-z-index:999;
-}
-
-#start button{
-padding:15px 25px;
-font-size:16px;
-font-weight:700;
-border:none;
-border-radius:10px;
-background:#fff;
-color:#000;
-cursor:pointer;
+color:#fff !important;
 }
 </style>
 </head>
 
 <body>
-
-<div id="start">
-<button id="startBtn">START HUD</button>
-</div>
 
 <div class="container">
 <div id="city"></div>
@@ -135,8 +113,6 @@ const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
 const cityEl=document.getElementById("city")
 const dots=[...document.querySelectorAll(".dot")]
-const startBtn=document.getElementById("start")
-const startOverlay=document.getElementById("start")
 
 let hud=false
 let flipped=false
@@ -144,31 +120,11 @@ let flipped=false
 let lastValidSpeed=0
 let gpsLostAt=0
 
-let wakeLock=null
-
-// ===== START BUTTON (fixes wake lock requirement) =====
-startBtn.addEventListener("click",async()=>{
-startOverlay.style.display="none"
-
-if(!document.fullscreenElement){
-document.documentElement.requestFullscreen?.()
-}
-
-await requestWakeLock()
-})
-
-async function requestWakeLock(){
-try{
-if("wakeLock"in navigator){
-wakeLock=await navigator.wakeLock.request("screen")
-}
-}catch{}
-}
+let speedLimit=null
+let lastFetch=0
 
 // ===== MODE SWITCH =====
-document.body.addEventListener("click",(e)=>{
-if(e.target.id==="startBtn") return
-
+document.body.addEventListener("click",()=>{
 hud=!hud
 flipped=!flipped
 
@@ -179,7 +135,7 @@ limitEl.classList.toggle("flipped",flipped)
 cityEl.classList.toggle("flipped",flipped)
 })
 
-// ===== GPS DOTS =====
+// ===== GPS SIGNAL =====
 function setDots(acc){
 if(acc<10){
 dots[0].style.background="red"
@@ -199,9 +155,6 @@ dots[2].style.background="green"
 }
 
 // ===== SPEED LIMIT =====
-let speedLimit=null
-let lastFetch=0
-
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
 if(now-lastFetch<5000) return speedLimit
@@ -221,7 +174,7 @@ speedLimit=parseInt(d.elements[0].tags.maxspeed)
 return speedLimit
 }
 
-// ===== DISTANCE =====
+// ===== DIST =====
 function getDistance(a,b,c,d){
 const R=6371000,toRad=x=>x*Math.PI/180
 const dLat=toRad(c-a),dLon=toRad(d-b)
@@ -238,7 +191,7 @@ const c=pos.coords
 
 setDots(c.accuracy)
 
-// ===== SPEED (ALWAYS UPDATED — FIXED BUG) =====
+// ===== SPEED CALC =====
 let speed=0
 
 if(c.speed!=null){
@@ -249,12 +202,13 @@ const dt=(now-lastTime)/1000
 speed=(dist/dt)*3.6
 }
 
-// HOLD
+// ===== HOLD GPS =====
 if(speed>0){
 lastValidSpeed=speed
 gpsLostAt=0
 }else{
 if(!gpsLostAt) gpsLostAt=now
+
 if(now-gpsLostAt<3000){
 speed=lastValidSpeed
 }else{
@@ -263,19 +217,19 @@ return
 }
 }
 
-// ===== NORMAL MODE =====
-let limit=null
-
-if(!hud){
-limit=await fetchSpeedLimit(c.latitude,c.longitude)
-limitEl.textContent=limit?limit:"50"
-}
-
-// ===== RENDER SPEED (FIX FOR NORMAL FREEZE) =====
+// =========================
+// IMPORTANT FIX:
+// ALWAYS update speed text FIRST
+// =========================
 speedEl.textContent=Math.round(speed)
 
-// ===== COLOR NORMAL ONLY =====
+// ===== NORMAL MODE =====
 if(!hud){
+
+let limit=await fetchSpeedLimit(c.latitude,c.longitude)
+limitEl.textContent=limit?limit:"50"
+
+// COLORS (NORMAL ONLY)
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
 
 if(limit){
@@ -286,13 +240,18 @@ else speedEl.classList.add("speed-ok")
 }else{
 speedEl.classList.add("speed-ok")
 }
-}
 
-// ===== CITY =====
-if(!hud){
+// CITY
 getCity(c.latitude,c.longitude).then(city=>{
 if(city) cityEl.textContent=city
 })
+}
+
+// ===== HUD MODE =====
+// FORCE WHITE ALWAYS
+if(hud){
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+speedEl.style.color="#fff"
 }
 
 lastPos=c
@@ -303,6 +262,15 @@ enableHighAccuracy:true,
 maximumAge:0,
 timeout:3000
 })
+
+// ===== CITY =====
+async function getCity(lat,lon){
+try{
+const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+const data=await res.json()
+return data.address.city || data.address.town || data.address.village || ""
+}catch{return ""}
+}
 </script>
 
 </body>
