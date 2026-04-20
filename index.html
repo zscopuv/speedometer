@@ -51,9 +51,21 @@ margin-top:10px;
 transform:rotate(180deg) scaleX(-1);
 }
 
+/* NORMAL COLORS */
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
+
+/* HUD BIG MODE */
+.hud #speed{
+font-size:min(90vw,90vh);
+line-height:1;
+}
+
+/* hide limit in HUD */
+.hud #limit{
+display:none;
+}
 </style>
 </head>
 
@@ -68,15 +80,21 @@ const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
 
 let flipped=false
+let hud=false
 let wakeLock=null
 
 document.body.addEventListener("click",async()=>{
+
 flipped=!flipped
+hud=!hud
 
 speedEl.classList.toggle("flipped",flipped)
 limitEl.classList.toggle("flipped",flipped)
 
-speedEl.textContent="0"
+document.body.classList.toggle("hud",hud)
+
+// reset visual cleanly when switching mode
+speedEl.style.transform=""
 
 if(!document.fullscreenElement){
 document.documentElement.requestFullscreen?.()
@@ -99,16 +117,13 @@ wakeLock=await navigator.wakeLock.request("screen")
 }
 })
 
-// ===== SPEED LIMIT CACHE =====
+// SPEED LIMIT CACHE
 let speedLimit=null
 let lastFetch=0
 
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
-
-// refresh every 10s OR new position shift >100m
 if(now-lastFetch<5000) return speedLimit
-
 lastFetch=now
 
 const query=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
@@ -130,7 +145,7 @@ speedLimit=parseInt(val)
 return speedLimit
 }
 
-// ===== DISTANCE =====
+// DISTANCE
 function getDistance(lat1,lon1,lat2,lon2){
 const R=6371000
 const toRad=x=>x*Math.PI/180
@@ -147,7 +162,6 @@ return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
 
 let lastPos=null
 let lastTime=null
-let startTime=Date.now()
 
 function setColor(speed,limit){
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
@@ -159,15 +173,9 @@ return
 
 const diff=speed-limit
 
-if(diff>=11){
-speedEl.classList.add("speed-over")
-}
-else if(diff>=1){
-speedEl.classList.add("speed-warn")
-}
-else{
-speedEl.classList.add("speed-ok")
-}
+if(diff>=11) speedEl.classList.add("speed-over")
+else if(diff>=1) speedEl.classList.add("speed-warn")
+else speedEl.classList.add("speed-ok")
 }
 
 navigator.geolocation.watchPosition(async pos=>{
@@ -176,7 +184,6 @@ const c=pos.coords
 
 let speed=0
 
-// raw GPS speed
 if(c.speed!=null){
 speed=c.speed*3.6
 }else if(lastPos){
@@ -189,20 +196,23 @@ const dt=(now-lastTime)/1000
 speed=(dist/dt)*3.6
 }
 
-// UI speed
+// SPEED DISPLAY ALWAYS
 speedEl.textContent=Math.max(0,Math.round(speed))
 
-// speed limit (fetch aggressively)
-const limit=await fetchSpeedLimit(c.latitude,c.longitude)
+// NORMAL MODE ONLY: show limit
+let limit=null
+if(!hud){
+limit=await fetchSpeedLimit(c.latitude,c.longitude)
 limitEl.textContent=limit?limit:"--"
-
-// COLOR LOGIC FIXED
 setColor(speed,limit)
+}else{
+setColor(speed,null)
+}
 
 lastPos=c
 lastTime=now
 
-},()=>speedEl.textContent="ERR",{
+},()=>speedEl.textContent="🚫",{
 enableHighAccuracy:true,
 maximumAge:0,
 timeout:3000
