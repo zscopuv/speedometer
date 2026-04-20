@@ -1,1 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Speedometer</title>
 
+  <!-- Montserrat Bold -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #000;
+      --text: #fff;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    #speed {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      color: var(--text);
+      font-size: 20vw;
+      user-select: none;
+      transition: transform 0.3s ease;
+    }
+
+    /* HUD flip */
+    .flipped {
+      transform: scaleX(-1) scaleY(-1);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="speed">0</div>
+
+  <script>
+    const speedEl = document.getElementById('speed');
+    let flipped = false;
+
+    // Toggle HUD mode
+    document.body.addEventListener('click', () => {
+      flipped = !flipped;
+      speedEl.classList.toggle('flipped', flipped);
+    });
+
+    // Convert m/s → km/h
+    function toKmh(ms) {
+      return ms * 3.6;
+    }
+
+    // GPS tracking
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(
+        (position) => {
+          let speed = position.coords.speed;
+
+          if (speed === null) {
+            speedEl.textContent = '0';
+            return;
+          }
+
+          let kmh = Math.round(toKmh(speed));
+          speedEl.textContent = kmh;
+        },
+        (err) => {
+          console.error(err);
+          speedEl.textContent = 'ERR';
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 5000
+        }
+      );
+    } else {
+      speedEl.textContent = 'NO GPS';
+    }
+  </script>
+
+</body>
+</html>
