@@ -1,258 +1,91 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Speed HUD</title>
+  <meta charset="UTF-8">
+  <title>Speedometer</title>
 
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+  <!-- Montserrat Bold -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
 
-<style>
-body{
-margin:0;
-background:#000;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
-overflow:hidden;
-font-family:'Montserrat',sans-serif;
-color:#fff;
-}
+  <style>
+    :root {
+      --bg: #000;
+      --text: #fff;
+    }
 
-.container{
-display:flex;
-flex-direction:column;
-align-items:center;
-justify-content:center;
-text-align:center;
-}
+    body {
+      margin: 0;
+      background: var(--bg);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      cursor: pointer;
+    }
 
-#city{
-position:absolute;
-bottom:20px;
-left:20px;
-font-size:18px;
-color:#777;
-}
+    #speed {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      color: var(--text);
+      font-size: 20vw;
+      user-select: none;
+      transition: transform 0.3s ease;
+    }
 
-#speed{
-font-weight:700;
-font-size:min(35vw,35vh);
-line-height:1;
-}
-
-#limit{
-font-size:min(6vw,6vh);
-color:#666;
-margin-top:5px;
-}
-
-#gps{
-position:absolute;
-bottom:20px;
-right:20px;
-display:flex;
-gap:4px;
-}
-
-.dot{width:8px;height:8px;border-radius:50%;background:#333}
-
-.hud #limit,
-.hud #gps,
-.hud #city{display:none}
-
-.hud #speed{
-font-size:min(90vw,90vh);
-color:#fff !important;
-}
-</style>
+    /* HUD flip */
+    .flipped {
+      transform: scaleX(-1) scaleY(-1);
+    }
+  </style>
 </head>
-
 <body>
 
-<div class="container">
-<div id="city"></div>
-<div id="speed">0</div>
-<div id="limit">--</div>
-</div>
+  <div id="speed">0</div>
 
-<div id="gps">
-<div class="dot"></div>
-<div class="dot"></div>
-<div class="dot"></div>
-</div>
+  <script>
+    const speedEl = document.getElementById('speed');
+    let flipped = false;
 
-<script>
-const speedEl=document.getElementById("speed")
-const limitEl=document.getElementById("limit")
-const cityEl=document.getElementById("city")
+    // Toggle HUD mode
+    document.body.addEventListener('click', () => {
+      flipped = !flipped;
+      speedEl.classList.toggle('flipped', flipped);
+    });
 
-let hud=false
-let lastPos=null
-let lastTime=null
+    // Convert m/s → km/h
+    function toKmh(ms) {
+      return ms * 3.6;
+    }
 
-let lastSpeed=0
-let gpsLost=0
+    // GPS tracking
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(
+        (position) => {
+          let speed = position.coords.speed;
 
-let limitCache=null
-let limitTime=0
+          if (speed === null) {
+            speedEl.textContent = '0';
+            return;
+          }
 
-let blinkTimer=null
-
-// ===== MODE TOGGLE =====
-document.body.addEventListener("click",()=>{
-hud=!hud
-document.body.classList.toggle("hud",hud)
-
-stopBlink()
-})
-
-// ===== BLINK =====
-function stopBlink(){
-if(blinkTimer) clearInterval(blinkTimer)
-blinkTimer=null
-speedEl.style.opacity="1"
-speedEl.textContent=""
-}
-
-// ===== SPEED LIMIT FETCH =====
-async function getLimit(lat,lon){
-const now=Date.now()
-
-if(now-limitTime<5000 && limitCache!==null){
-return limitCache
-}
-
-limitTime=now
-
-try{
-const res=await fetch("https://overpass-api.de/api/interpreter",{
-method:"POST",
-body:`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
-})
-
-const data=await res.json()
-
-if(data.elements?.length){
-limitCache=parseInt(data.elements[0].tags.maxspeed)
-}
-}catch{}
-
-return limitCache
-}
-
-// ===== DISTANCE =====
-function dist(a,b,c,d){
-const R=6371000,toRad=x=>x*Math.PI/180
-const dLat=toRad(c-a),dLon=toRad(d-b)
-const x=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/2)**2
-return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))
-}
-
-// ===== MAIN LOOP =====
-navigator.geolocation.watchPosition(async pos=>{
-const now=Date.now()
-const c=pos.coords
-
-let speed=0
-
-if(c.speed!=null){
-speed=c.speed*3.6
-}else if(lastPos){
-const d=dist(lastPos.latitude,lastPos.longitude,c.latitude,c.longitude)
-const dt=(now-lastTime)/1000
-speed=(d/dt)*3.6
-}
-
-// hold GPS
-if(speed>0){
-lastSpeed=speed
-gpsLost=0
-}else{
-if(!gpsLost) gpsLost=now
-if(now-gpsLost<3000) speed=lastSpeed
-else return
-}
-
-// ===== LIMIT ALWAYS RESOLVED FIRST =====
-const limit=await getLimit(c.latitude,c.longitude) || 50
-
-// ===== RENDER SPEED ALWAYS =====
-speedEl.textContent=Math.round(speed)
-limitEl.textContent=limit
-
-const diff=speed-limit
-const pct=diff/limit
-
-// ===== NORMAL MODE =====
-if(!hud){
-
-speedEl.style.opacity=1
-stopBlink()
-
-speedEl.style.color=
-pct>0.11 ? "red" :
-pct>0.01 ? "yellow" :
-"#fff"
-
-cityEl.textContent=""
-
-// (optional city can be added later)
-}
-
-// ===== HUD MODE =====
-if(hud){
-
-speedEl.style.color="#fff"
-
-if(pct<=0.10){
-stopBlink()
-}
-
-else if(pct>0.10 && pct<=0.20){
-blink(150,4)
-}
-
-else if(pct>0.20 && pct<=0.30){
-blink(100,8,true)
-}
-
-else if(pct>0.30){
-blink(100,999,true)
-}
-}
-
-lastPos=c
-lastTime=now
-
-},()=>{},{
-enableHighAccuracy:true,
-maximumAge:0,
-timeout:3000
-})
-
-// ===== BLINK ENGINE =====
-function blink(interval,cycles,text=false){
-
-stopBlink()
-
-let i=0
-let on=true
-
-blinkTimer=setInterval(()=>{
-speedEl.style.opacity=on?"0":"1"
-on=!on
-i++
-
-if(i>=cycles*2){
-stopBlink()
-speedEl.style.opacity="1"
-if(text) speedEl.textContent="SLOW DOWN"
-}
-},interval)
-}
-</script>
+          let kmh = Math.round(toKmh(speed));
+          speedEl.textContent = kmh;
+        },
+        (err) => {
+          console.error(err);
+          speedEl.textContent = 'ERR';
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 5000
+        }
+      );
+    } else {
+      speedEl.textContent = 'NO GPS';
+    }
+  </script>
 
 </body>
 </html>
