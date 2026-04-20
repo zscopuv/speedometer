@@ -1,137 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Speedometer</title>
-
-  <!-- Viewport for PWA-like fullscreen -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#000000">
-
-  <!-- iOS fullscreen -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
-  <!-- Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
-
-  <style>
-    body {
-      margin: 0;
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
-      cursor: pointer;
-    }
-
-    #speed {
-      font-family: 'Montserrat', sans-serif;
-      font-weight: 700;
-      color: #fff;
-
-      /* Responsive BOTH width & height */
-      font-size: min(35vw, 35vh);
-
-      user-select: none;
-      transition: transform 0.3s ease;
-    }
-
-    .flipped {
-      transform: scaleX(-1) scaleY(-1);
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Speedometer</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;cursor:pointer}
+#speed{font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:min(35vw,35vh);user-select:none;transition:transform .3s ease,color .2s linear}
+.flipped{transform:scaleX(-1) scaleY(-1)}
+.speed-ok{color:#fff}
+.speed-warn{color:yellow}
+.speed-over{color:red}
+</style>
 </head>
 <body>
-
 <div id="speed">0</div>
-
 <script>
-const speedEl = document.getElementById('speed');
-
-let flipped = false;
-let wakeLock = null;
-
-// ===== HUD FLIP + FULLSCREEN + WAKE LOCK =====
-document.body.addEventListener('click', async () => {
-  flipped = !flipped;
-  speedEl.classList.toggle('flipped', flipped);
-
-  // Fullscreen (only works on user gesture)
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.();
-  }
-
-  // Wake Lock
-  try {
-    if ('wakeLock' in navigator) {
-      wakeLock = await navigator.wakeLock.request('screen');
-    }
-  } catch (err) {
-    console.log('WakeLock failed:', err);
-  }
-});
-
-// ===== SPEED SMOOTHING =====
-let smoothSpeed = 0;
-
-function smooth(target) {
-  // Linear interpolation
-  smoothSpeed += (target - smoothSpeed) * 0.2;
-  return smoothSpeed;
+const speedEl=document.getElementById("speed")
+let flipped=false
+let wakeLock=null
+document.body.addEventListener("click",async()=>{
+flipped=!flipped
+speedEl.classList.toggle("flipped",flipped)
+if(!document.fullscreenElement){document.documentElement.requestFullscreen?.()}
+try{if("wakeLock"in navigator){wakeLock=await navigator.wakeLock.request("screen")}}catch{}
+})
+class Kalman{constructor(){this.x=0;this.p=1;this.q=.1;this.r=3}update(m){this.p+=this.q;const k=this.p/(this.p+this.r);this.x=this.x+k*(m-this.x);this.p=(1-k)*this.p;return this.x}}
+const kalman=new Kalman()
+let accelSpeed=0
+let lastAccelTime=Date.now()
+function initAccelerometer(){
+if(typeof DeviceMotionEvent!=="undefined"){
+window.addEventListener("devicemotion",e=>{
+const acc=e.accelerationIncludingGravity
+if(!acc)return
+const now=Date.now()
+const dt=(now-lastAccelTime)/1000
+const a=acc.x||0
+accelSpeed+=a*dt
+lastAccelTime=now
+})
+}}
+let speedLimit=null
+let lastFetchTime=0
+let lastFetchPos=null
+async function fetchSpeedLimit(lat,lon){
+const now=Date.now()
+if(lastFetchPos&&now-lastFetchTime<10000&&getDistance(lat,lon,lastFetchPos.lat,lastFetchPos.lon)<100){return speedLimit}
+lastFetchTime=now
+lastFetchPos={lat,lon}
+const query=`[out:json];way(around:50,${lat},${lon})["maxspeed"];out tags;`
+try{
+const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:query})
+const data=await res.json()
+if(data.elements.length>0){
+let val=data.elements[0].tags.maxspeed
+speedLimit=parseInt(val)
 }
-
-// ===== GPS =====
-if ("geolocation" in navigator) {
-  navigator.geolocation.watchPosition(
-    (pos) => {
-      let raw = pos.coords.speed;
-
-      if (raw == null) {
-        speedEl.textContent = '0';
-        return;
-      }
-
-      let kmh = raw * 3.6;
-
-      let smoothed = smooth(kmh);
-      speedEl.textContent = Math.round(smoothed);
-    },
-    () => speedEl.textContent = 'ERR',
-    {
-      enableHighAccuracy: true,
-      maximumAge: 500,
-      timeout: 5000
-    }
-  );
+}catch{}
+return speedLimit
 }
-
-// ===== iOS Wake Lock fallback (keeps screen active) =====
-let video;
-function iosKeepAlive() {
-  video = document.createElement('video');
-  video.src = '';
-  video.setAttribute('playsinline', '');
-  video.muted = true;
-  video.loop = true;
-  video.style.display = 'none';
-  document.body.appendChild(video);
-
-  video.play().catch(()=>{});
+function getDistance(lat1,lon1,lat2,lon2){
+const R=6371000
+const toRad=x=>x*Math.PI/180
+const dLat=toRad(lat2-lat1)
+const dLon=toRad(lon2-lon1)
+const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2
+return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
 }
-
-iosKeepAlive();
-
-// ===== Register Service Worker =====
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
+let lastPos=null
+let lastTime=null
+navigator.geolocation.watchPosition(async pos=>{
+const now=Date.now()
+const coords=pos.coords
+let gpsSpeed=coords.speed?coords.speed*3.6:0
+if(!gpsSpeed&&lastPos){
+const dist=getDistance(lastPos.latitude,lastPos.longitude,coords.latitude,coords.longitude)
+const dt=(now-lastTime)/1000
+gpsSpeed=(dist/dt)*3.6
 }
+let fused=gpsSpeed+(accelSpeed*3.6*.3)
+let finalSpeed=kalman.update(fused)
+speedEl.textContent=Math.max(0,Math.round(finalSpeed))
+let limit=await fetchSpeedLimit(coords.latitude,coords.longitude)
+speedEl.className=""
+if(limit){
+const diff=finalSpeed-limit
+if(diff>=11){speedEl.classList.add("speed-over")}
+else if(diff>=1){speedEl.classList.add("speed-warn")}
+else{speedEl.classList.add("speed-ok")}
+}
+lastPos=coords
+lastTime=now
+},()=>speedEl.textContent="ERR",{enableHighAccuracy:true,maximumAge:0,timeout:3000})
+initAccelerometer()
+if("serviceWorker"in navigator){navigator.serviceWorker.register("sw.js")}
 </script>
-
 </body>
 </html>
