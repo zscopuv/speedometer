@@ -4,18 +4,24 @@
   <meta charset="UTF-8">
   <title>Speedometer</title>
 
-  <!-- Montserrat Bold -->
+  <!-- Viewport for PWA-like fullscreen -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+
+  <!-- iOS fullscreen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Font -->
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
 
   <style>
-    :root {
-      --bg: #000;
-      --text: #fff;
-    }
-
     body {
       margin: 0;
-      background: var(--bg);
+      background: #000;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -27,13 +33,15 @@
     #speed {
       font-family: 'Montserrat', sans-serif;
       font-weight: 700;
-      color: var(--text);
-      font-size: 20vw;
+      color: #fff;
+
+      /* Responsive BOTH width & height */
+      font-size: min(35vw, 35vh);
+
       user-select: none;
       transition: transform 0.3s ease;
     }
 
-    /* HUD flip */
     .flipped {
       transform: scaleX(-1) scaleY(-1);
     }
@@ -41,51 +49,89 @@
 </head>
 <body>
 
-  <div id="speed">0</div>
+<div id="speed">0</div>
 
-  <script>
-    const speedEl = document.getElementById('speed');
-    let flipped = false;
+<script>
+const speedEl = document.getElementById('speed');
 
-    // Toggle HUD mode
-    document.body.addEventListener('click', () => {
-      flipped = !flipped;
-      speedEl.classList.toggle('flipped', flipped);
-    });
+let flipped = false;
+let wakeLock = null;
 
-    // Convert m/s → km/h
-    function toKmh(ms) {
-      return ms * 3.6;
+// ===== HUD FLIP + FULLSCREEN + WAKE LOCK =====
+document.body.addEventListener('click', async () => {
+  flipped = !flipped;
+  speedEl.classList.toggle('flipped', flipped);
+
+  // Fullscreen (only works on user gesture)
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.();
+  }
+
+  // Wake Lock
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
     }
+  } catch (err) {
+    console.log('WakeLock failed:', err);
+  }
+});
 
-    // GPS tracking
-    if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition(
-        (position) => {
-          let speed = position.coords.speed;
+// ===== SPEED SMOOTHING =====
+let smoothSpeed = 0;
 
-          if (speed === null) {
-            speedEl.textContent = '0';
-            return;
-          }
+function smooth(target) {
+  // Linear interpolation
+  smoothSpeed += (target - smoothSpeed) * 0.2;
+  return smoothSpeed;
+}
 
-          let kmh = Math.round(toKmh(speed));
-          speedEl.textContent = kmh;
-        },
-        (err) => {
-          console.error(err);
-          speedEl.textContent = 'ERR';
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 1000,
-          timeout: 5000
-        }
-      );
-    } else {
-      speedEl.textContent = 'NO GPS';
+// ===== GPS =====
+if ("geolocation" in navigator) {
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      let raw = pos.coords.speed;
+
+      if (raw == null) {
+        speedEl.textContent = '0';
+        return;
+      }
+
+      let kmh = raw * 3.6;
+
+      let smoothed = smooth(kmh);
+      speedEl.textContent = Math.round(smoothed);
+    },
+    () => speedEl.textContent = 'ERR',
+    {
+      enableHighAccuracy: true,
+      maximumAge: 500,
+      timeout: 5000
     }
-  </script>
+  );
+}
+
+// ===== iOS Wake Lock fallback (keeps screen active) =====
+let video;
+function iosKeepAlive() {
+  video = document.createElement('video');
+  video.src = '';
+  video.setAttribute('playsinline', '');
+  video.muted = true;
+  video.loop = true;
+  video.style.display = 'none';
+  document.body.appendChild(video);
+
+  video.play().catch(()=>{});
+}
+
+iosKeepAlive();
+
+// ===== Register Service Worker =====
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
 
 </body>
 </html>
