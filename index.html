@@ -58,12 +58,10 @@ margin-top:5px;
 transform:rotate(180deg) scaleX(-1);
 }
 
-/* NORMAL COLORS */
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
 
-/* GPS dots */
 #gps{
 position:absolute;
 bottom:20px;
@@ -89,10 +87,36 @@ display:none;
 .hud #speed{
 font-size:min(90vw,90vh);
 }
+
+/* WAKE BUTTON OVERLAY */
+#start{
+position:fixed;
+inset:0;
+background:#000;
+display:flex;
+justify-content:center;
+align-items:center;
+z-index:999;
+}
+
+#start button{
+padding:15px 25px;
+font-size:16px;
+font-weight:700;
+border:none;
+border-radius:10px;
+background:#fff;
+color:#000;
+cursor:pointer;
+}
 </style>
 </head>
 
 <body>
+
+<div id="start">
+<button id="startBtn">START HUD</button>
+</div>
 
 <div class="container">
 <div id="city"></div>
@@ -111,6 +135,8 @@ const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
 const cityEl=document.getElementById("city")
 const dots=[...document.querySelectorAll(".dot")]
+const startBtn=document.getElementById("start")
+const startOverlay=document.getElementById("start")
 
 let hud=false
 let flipped=false
@@ -118,13 +144,31 @@ let flipped=false
 let lastValidSpeed=0
 let gpsLostAt=0
 
-let blinkTimer=null
+let wakeLock=null
 
-// ===== LIMIT SMOOTHING (anti flicker) =====
-let lastLimit=null
-let limitStableCount=0
+// ===== START BUTTON (fixes wake lock requirement) =====
+startBtn.addEventListener("click",async()=>{
+startOverlay.style.display="none"
 
-document.body.addEventListener("click",()=>{
+if(!document.fullscreenElement){
+document.documentElement.requestFullscreen?.()
+}
+
+await requestWakeLock()
+})
+
+async function requestWakeLock(){
+try{
+if("wakeLock"in navigator){
+wakeLock=await navigator.wakeLock.request("screen")
+}
+}catch{}
+}
+
+// ===== MODE SWITCH =====
+document.body.addEventListener("click",(e)=>{
+if(e.target.id==="startBtn") return
+
 hud=!hud
 flipped=!flipped
 
@@ -133,56 +177,7 @@ document.body.classList.toggle("hud",hud)
 speedEl.classList.toggle("flipped",flipped)
 limitEl.classList.toggle("flipped",flipped)
 cityEl.classList.toggle("flipped",flipped)
-
-stopBlink()
-speedEl.textContent="0"
-limitEl.textContent="--"
 })
-
-// ===== BLINK SYSTEM =====
-function stopBlink(){
-if(blinkTimer) clearInterval(blinkTimer)
-blinkTimer=null
-speedEl.style.opacity="1"
-speedEl.textContent=""
-}
-
-function startBlink(speed,limit){
-
-stopBlink()
-
-const diff=(speed-limit)/limit
-
-let interval=150
-let cycles=4
-let showText=false
-
-if(diff>0.2 && diff<=0.3){
-interval=100
-cycles=6
-showText=true
-}
-else if(diff>0.3){
-interval=100
-cycles=999
-showText=true
-}
-
-let i=0
-let visible=true
-
-blinkTimer=setInterval(()=>{
-speedEl.style.opacity=visible?"0":"1"
-visible=!visible
-i++
-
-if(i>=cycles*2){
-stopBlink()
-speedEl.style.opacity="1"
-if(showText) speedEl.textContent="SLOW DOWN"
-}
-},interval)
-}
 
 // ===== GPS DOTS =====
 function setDots(acc){
@@ -203,51 +198,14 @@ dots[2].style.background="green"
 }
 }
 
-// ===== COLOR (NORMAL MODE ONLY) =====
-function setColor(speed,limit){
-
-speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-
-if(speed==="GPS"){
-speedEl.classList.add("speed-ok")
-return
-}
-
-if(!limit){
-speedEl.classList.add("speed-ok")
-return
-}
-
-const diff=speed-limit
-
-if(diff>=11) speedEl.classList.add("speed-over")
-else if(diff>=1) speedEl.classList.add("speed-warn")
-else speedEl.classList.add("speed-ok")
-}
-
-// ===== CITY =====
-async function getCity(lat,lon){
-try{
-const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
-const data=await res.json()
-return data.address.city || data.address.town || data.address.village || ""
-}catch{return ""}
-}
-
-// ===== SPEED LIMIT (WITH FLICKER FIX) =====
+// ===== SPEED LIMIT =====
 let speedLimit=null
-let lastLimitFetch=0
+let lastFetch=0
 
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
-
-// anti flicker: must be stable before switching
-if(now-lastLimitFetch<5000 && lastLimit!==null){
-limitStableCount++
-if(limitStableCount<3) return lastLimit
-}
-
-lastLimitFetch=now
+if(now-lastFetch<5000) return speedLimit
+lastFetch=now
 
 const q=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
 
@@ -256,17 +214,7 @@ const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",bod
 const d=await r.json()
 
 if(d.elements?.length){
-let val=parseInt(d.elements[0].tags.maxspeed)
-
-// stability check
-if(val===lastLimit){
-limitStableCount++
-}else{
-limitStableCount=0
-}
-
-lastLimit=val
-speedLimit=val
+speedLimit=parseInt(d.elements[0].tags.maxspeed)
 }
 }catch{}
 
@@ -290,6 +238,7 @@ const c=pos.coords
 
 setDots(c.accuracy)
 
+// ===== SPEED (ALWAYS UPDATED — FIXED BUG) =====
 let speed=0
 
 if(c.speed!=null){
@@ -300,13 +249,12 @@ const dt=(now-lastTime)/1000
 speed=(dist/dt)*3.6
 }
 
-// ===== GPS HOLD =====
+// HOLD
 if(speed>0){
 lastValidSpeed=speed
 gpsLostAt=0
 }else{
 if(!gpsLostAt) gpsLostAt=now
-
 if(now-gpsLostAt<3000){
 speed=lastValidSpeed
 }else{
@@ -315,13 +263,29 @@ return
 }
 }
 
-// ===== LIMIT =====
+// ===== NORMAL MODE =====
 let limit=null
 
 if(!hud){
 limit=await fetchSpeedLimit(c.latitude,c.longitude)
-limitEl.textContent=limit?limit:"50"   // fallback stays stable
-setColor(speed,limit)
+limitEl.textContent=limit?limit:"50"
+}
+
+// ===== RENDER SPEED (FIX FOR NORMAL FREEZE) =====
+speedEl.textContent=Math.round(speed)
+
+// ===== COLOR NORMAL ONLY =====
+if(!hud){
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+
+if(limit){
+const diff=speed-limit
+if(diff>=11) speedEl.classList.add("speed-over")
+else if(diff>=1) speedEl.classList.add("speed-warn")
+else speedEl.classList.add("speed-ok")
+}else{
+speedEl.classList.add("speed-ok")
+}
 }
 
 // ===== CITY =====
@@ -329,21 +293,6 @@ if(!hud){
 getCity(c.latitude,c.longitude).then(city=>{
 if(city) cityEl.textContent=city
 })
-}
-
-// ===== HUD MODE =====
-if(hud && limit){
-const diff=(speed-limit)/limit
-
-if(diff<=0.1){
-stopBlink()
-speedEl.textContent=Math.round(speed)
-}
-else{
-startBlink(speed,limit)
-}
-}else if(hud){
-speedEl.textContent=Math.round(speed)
 }
 
 lastPos=c
