@@ -75,17 +75,23 @@ return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
 }
 let lastPos=null
 let lastTime=null
+let startTime=Date.now()
 navigator.geolocation.watchPosition(async pos=>{
 const now=Date.now()
 const coords=pos.coords
-let gpsSpeed=coords.speed?coords.speed*3.6:0
+let gpsSpeed=coords.speed!=null?coords.speed*3.6:0
 if(!gpsSpeed&&lastPos){
 const dist=getDistance(lastPos.latitude,lastPos.longitude,coords.latitude,coords.longitude)
 const dt=(now-lastTime)/1000
 gpsSpeed=(dist/dt)*3.6
 }
+let finalSpeed=0
+if(now-startTime<10000){
+finalSpeed=gpsSpeed
+}else{
 let fused=gpsSpeed+(accelSpeed*3.6*.3)
-let finalSpeed=kalman.update(fused)
+finalSpeed=kalman.update(fused)
+}
 speedEl.textContent=Math.max(0,Math.round(finalSpeed))
 let limit=await fetchSpeedLimit(coords.latitude,coords.longitude)
 speedEl.className=""
