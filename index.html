@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Speedometer</title>
+<title>Speed HUD</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#000000">
@@ -22,6 +22,8 @@ align-items:center;
 height:100vh;
 overflow:hidden;
 cursor:pointer;
+color:#fff;
+font-family:'Montserrat',sans-serif;
 }
 
 .container{
@@ -29,139 +31,107 @@ display:flex;
 flex-direction:column;
 align-items:center;
 justify-content:center;
+text-align:center;
+}
+
+#city{
+font-size:14px;
+color:#777;
+margin-bottom:8px;
 }
 
 #speed{
-font-family:'Montserrat',sans-serif;
 font-weight:700;
-color:#fff;
 font-size:min(35vw,35vh);
-user-select:none;
+line-height:1;
 }
 
 #limit{
-font-family:'Montserrat',sans-serif;
-font-weight:700;
+font-size:min(6vw,6vh);
 color:#666;
-font-size:min(8vw,8vh);
-margin-top:10px;
+margin-top:5px;
 }
 
 .flipped{
 transform:rotate(180deg) scaleX(-1);
 }
 
-/* NORMAL COLORS */
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
 
-/* HUD BIG MODE */
-.hud #speed{
-font-size:min(90vw,90vh);
-line-height:1;
+/* GPS dots */
+#gps{
+position:absolute;
+bottom:20px;
+right:20px;
+display:flex;
+gap:4px;
 }
 
-/* hide limit in HUD */
-.hud #limit{
-display:none;
+.dot{
+width:8px;
+height:8px;
+border-radius:50%;
+background:#333;
 }
 </style>
 </head>
 
 <body>
+
 <div class="container">
+<div id="city"></div>
 <div id="speed">0</div>
 <div id="limit">--</div>
+</div>
+
+<div id="gps">
+<div class="dot"></div>
+<div class="dot"></div>
+<div class="dot"></div>
 </div>
 
 <script>
 const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
+const cityEl=document.getElementById("city")
+const dots=[...document.querySelectorAll(".dot")]
 
 let flipped=false
 let hud=false
-let wakeLock=null
 
-document.body.addEventListener("click",async()=>{
+let lastValidSpeed=0
+let gpsLostAt=0
 
+let lastCityFetch=0
+
+document.body.addEventListener("click",()=>{
 flipped=!flipped
 hud=!hud
 
 speedEl.classList.toggle("flipped",flipped)
 limitEl.classList.toggle("flipped",flipped)
-
-document.body.classList.toggle("hud",hud)
-
-// reset visual cleanly when switching mode
-speedEl.style.transform=""
-
-if(!document.fullscreenElement){
-document.documentElement.requestFullscreen?.()
-}
-
-try{
-if("wakeLock"in navigator){
-wakeLock=await navigator.wakeLock.request("screen")
-}
-}catch{}
+cityEl.classList.toggle("flipped",flipped)
 })
 
-document.addEventListener("visibilitychange",async()=>{
-if(document.visibilityState==="visible"){
-try{
-if("wakeLock"in navigator){
-wakeLock=await navigator.wakeLock.request("screen")
+function setDots(acc){
+if(acc<10){
+dots[0].style.background="red"
+dots[1].style.background="#333"
+dots[2].style.background="#333"
 }
-}catch{}
+else if(acc<20){
+dots[0].style.background="yellow"
+dots[1].style.background="yellow"
+dots[2].style.background="#333"
 }
-})
-
-// SPEED LIMIT CACHE
-let speedLimit=null
-let lastFetch=0
-
-async function fetchSpeedLimit(lat,lon){
-const now=Date.now()
-if(now-lastFetch<5000) return speedLimit
-lastFetch=now
-
-const query=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
-
-try{
-const res=await fetch("https://overpass-api.de/api/interpreter",{
-method:"POST",
-body:query
-})
-
-const data=await res.json()
-
-if(data.elements?.length){
-let val=data.elements[0].tags.maxspeed
-speedLimit=parseInt(val)
+else{
+dots[0].style.background="green"
+dots[1].style.background="green"
+dots[2].style.background="green"
 }
-}catch{}
-
-return speedLimit
 }
-
-// DISTANCE
-function getDistance(lat1,lon1,lat2,lon2){
-const R=6371000
-const toRad=x=>x*Math.PI/180
-const dLat=toRad(lat2-lat1)
-const dLon=toRad(lon2-lon1)
-
-const a=
-Math.sin(dLat/2)**2+
-Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
-Math.sin(dLon/2)**2
-
-return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
-}
-
-let lastPos=null
-let lastTime=null
 
 function setColor(speed,limit){
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
@@ -178,41 +148,95 @@ else if(diff>=1) speedEl.classList.add("speed-warn")
 else speedEl.classList.add("speed-ok")
 }
 
+async function getCity(lat,lon){
+try{
+const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+const data=await res.json()
+return data.address.city || data.address.town || data.address.village || ""
+}catch{return ""}
+}
+
+let speedLimit=null
+let lastLimitFetch=0
+
+async function fetchSpeedLimit(lat,lon){
+const now=Date.now()
+if(now-lastLimitFetch<5000) return speedLimit
+lastLimitFetch=now
+
+const q=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
+
+try{
+const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:q})
+const d=await r.json()
+if(d.elements?.length){
+speedLimit=parseInt(d.elements[0].tags.maxspeed)
+}
+}catch{}
+return speedLimit
+}
+
+function getDistance(a,b,c,d){
+const R=6371000,toRad=x=>x*Math.PI/180
+const dLat=toRad(c-a),dLon=toRad(d-b)
+const x=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/2)**2
+return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))
+}
+
+let lastPos=null
+let lastTime=null
+let start=Date.now()
+
 navigator.geolocation.watchPosition(async pos=>{
 const now=Date.now()
 const c=pos.coords
+
+setDots(c.accuracy)
 
 let speed=0
 
 if(c.speed!=null){
 speed=c.speed*3.6
 }else if(lastPos){
-const dist=getDistance(
-lastPos.latitude,lastPos.longitude,
-c.latitude,c.longitude
-)
-
+const dist=getDistance(lastPos.latitude,lastPos.longitude,c.latitude,c.longitude)
 const dt=(now-lastTime)/1000
 speed=(dist/dt)*3.6
 }
 
-// SPEED DISPLAY ALWAYS
-speedEl.textContent=Math.max(0,Math.round(speed))
-
-// NORMAL MODE ONLY: show limit
-let limit=null
-if(!hud){
-limit=await fetchSpeedLimit(c.latitude,c.longitude)
-limitEl.textContent=limit?limit:"--"
-setColor(speed,limit)
+// GPS HOLD LOGIC
+if(speed>0){
+lastValidSpeed=speed
+gpsLostAt=0
 }else{
-setColor(speed,null)
+if(!gpsLostAt) gpsLostAt=now
+if(now-gpsLostAt<3000){
+speed=lastValidSpeed
+}else{
+speedEl.textContent="🚫 GPS"
+return
+}
+}
+
+speedEl.textContent=Math.round(speed)
+
+// LIMIT
+let limit=await fetchSpeedLimit(c.latitude,c.longitude)
+limitEl.textContent=limit?`MAX ${limit}`:"--"
+
+setColor(speed,limit)
+
+// CITY (slow update)
+if(!hud && now-lastCityFetch>20000){
+lastCityFetch=now
+getCity(c.latitude,c.longitude).then(city=>{
+if(city) cityEl.textContent=city
+})
 }
 
 lastPos=c
 lastTime=now
 
-},()=>speedEl.textContent="🚫",{
+},()=>speedEl.textContent="🚫 GPS",{
 enableHighAccuracy:true,
 maximumAge:0,
 timeout:3000
