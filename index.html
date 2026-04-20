@@ -4,102 +4,144 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Speedometer</title>
+
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+
 <style>
-body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;cursor:pointer}
-.container{display:flex;flex-direction:column;align-items:center;justify-content:center}
-#speed{font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:min(35vw,35vh);user-select:none;transition:transform .3s ease,color .2s linear}
-#limit{font-family:'Montserrat',sans-serif;font-weight:700;color:#666;font-size:min(8vw,8vh);margin-top:10px}
-.flipped{transform:rotate(180deg) scaleX(-1)}
+body{
+margin:0;
+background:#000;
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
+overflow:hidden;
+cursor:pointer;
+}
+
+.container{
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+}
+
+#speed{
+font-family:'Montserrat',sans-serif;
+font-weight:700;
+color:#fff;
+font-size:min(35vw,35vh);
+user-select:none;
+}
+
+#limit{
+font-family:'Montserrat',sans-serif;
+font-weight:700;
+color:#666;
+font-size:min(8vw,8vh);
+margin-top:10px;
+}
+
+.flipped{
+transform:rotate(180deg) scaleX(-1);
+}
+
 .speed-ok{color:#fff}
 .speed-warn{color:yellow}
 .speed-over{color:red}
 </style>
 </head>
+
 <body>
 <div class="container">
 <div id="speed">0</div>
 <div id="limit">--</div>
 </div>
+
 <script>
 const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
+
 let flipped=false
 let wakeLock=null
 
-async function requestWakeLock(){
+document.body.addEventListener("click",async()=>{
+flipped=!flipped
+
+speedEl.classList.toggle("flipped",flipped)
+limitEl.classList.toggle("flipped",flipped)
+
+speedEl.textContent="0"
+
+if(!document.fullscreenElement){
+document.documentElement.requestFullscreen?.()
+}
+
 try{
 if("wakeLock"in navigator){
 wakeLock=await navigator.wakeLock.request("screen")
-wakeLock.addEventListener("release",()=>{})
 }
 }catch{}
-}
-
-document.body.addEventListener("click",async()=>{
-flipped=!flipped
-speedEl.classList.toggle("flipped",flipped)
-limitEl.classList.toggle("flipped",flipped)
-if(!document.fullscreenElement){document.documentElement.requestFullscreen?.()}
-await requestWakeLock()
 })
 
 document.addEventListener("visibilitychange",async()=>{
 if(document.visibilityState==="visible"){
-await requestWakeLock()
+try{
+if("wakeLock"in navigator){
+wakeLock=await navigator.wakeLock.request("screen")
+}
+}catch{}
 }
 })
 
-class Kalman{constructor(){this.x=0;this.p=1;this.q=.1;this.r=3}update(m){this.p+=this.q;const k=this.p/(this.p+this.r);this.x=this.x+k*(m-this.x);this.p=(1-k)*this.p;return this.x}}
-const kalman=new Kalman()
-
-let accelSpeed=0
-let lastAccelTime=Date.now()
-
-function initAccelerometer(){
-if(typeof DeviceMotionEvent!=="undefined"){
-window.addEventListener("devicemotion",e=>{
-const acc=e.accelerationIncludingGravity
-if(!acc)return
-const now=Date.now()
-const dt=(now-lastAccelTime)/1000
-const a=acc.x||0
-accelSpeed+=a*dt
-lastAccelTime=now
-})
-}}
-
+// ===== SPEED LIMIT CACHE =====
 let speedLimit=null
-let lastFetchTime=0
-let lastFetchPos=null
+let lastFetch=0
 
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
-if(lastFetchPos&&now-lastFetchTime<10000&&getDistance(lat,lon,lastFetchPos.lat,lastFetchPos.lon)<100){return speedLimit}
-lastFetchTime=now
-lastFetchPos={lat,lon}
-const query=`[out:json];way(around:50,${lat},${lon})["maxspeed"];out tags;`
+
+// refresh every 10s OR new position shift >100m
+if(now-lastFetch<5000) return speedLimit
+
+lastFetch=now
+
+const query=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
+
 try{
-const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:query})
+const res=await fetch("https://overpass-api.de/api/interpreter",{
+method:"POST",
+body:query
+})
+
 const data=await res.json()
-if(data.elements.length>0){
+
+if(data.elements?.length){
 let val=data.elements[0].tags.maxspeed
 speedLimit=parseInt(val)
 }
 }catch{}
+
 return speedLimit
 }
 
+// ===== DISTANCE =====
 function getDistance(lat1,lon1,lat2,lon2){
 const R=6371000
 const toRad=x=>x*Math.PI/180
 const dLat=toRad(lat2-lat1)
 const dLon=toRad(lon2-lon1)
-const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2
+
+const a=
+Math.sin(dLat/2)**2+
+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+Math.sin(dLon/2)**2
+
 return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
 }
 
@@ -107,50 +149,65 @@ let lastPos=null
 let lastTime=null
 let startTime=Date.now()
 
+function setColor(speed,limit){
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+
+if(!limit){
+speedEl.classList.add("speed-ok")
+return
+}
+
+const diff=speed-limit
+
+if(diff>=11){
+speedEl.classList.add("speed-over")
+}
+else if(diff>=1){
+speedEl.classList.add("speed-warn")
+}
+else{
+speedEl.classList.add("speed-ok")
+}
+}
+
 navigator.geolocation.watchPosition(async pos=>{
 const now=Date.now()
-const coords=pos.coords
+const c=pos.coords
 
-let gpsSpeed=coords.speed!=null?coords.speed*3.6:0
+let speed=0
 
-if(!gpsSpeed&&lastPos){
-const dist=getDistance(lastPos.latitude,lastPos.longitude,coords.latitude,coords.longitude)
+// raw GPS speed
+if(c.speed!=null){
+speed=c.speed*3.6
+}else if(lastPos){
+const dist=getDistance(
+lastPos.latitude,lastPos.longitude,
+c.latitude,c.longitude
+)
+
 const dt=(now-lastTime)/1000
-gpsSpeed=(dist/dt)*3.6
+speed=(dist/dt)*3.6
 }
 
-let finalSpeed=0
+// UI speed
+speedEl.textContent=Math.max(0,Math.round(speed))
 
-if(now-startTime<10000){
-finalSpeed=gpsSpeed
-}else{
-let fused=gpsSpeed+(accelSpeed*3.6*.3)
-finalSpeed=kalman.update(fused)
-}
-
-speedEl.textContent=Math.max(0,Math.round(finalSpeed))
-
-let limit=await fetchSpeedLimit(coords.latitude,coords.longitude)
-
+// speed limit (fetch aggressively)
+const limit=await fetchSpeedLimit(c.latitude,c.longitude)
 limitEl.textContent=limit?limit:"--"
 
-speedEl.className=""
-if(limit){
-const diff=finalSpeed-limit
-if(diff>=11){speedEl.classList.add("speed-over")}
-else if(diff>=1){speedEl.classList.add("speed-warn")}
-else{speedEl.classList.add("speed-ok")}
-}
+// COLOR LOGIC FIXED
+setColor(speed,limit)
 
-lastPos=coords
+lastPos=c
 lastTime=now
-},()=>speedEl.textContent="ERR",{enableHighAccuracy:true,maximumAge:0,timeout:3000})
 
-initAccelerometer()
-
-if("serviceWorker"in navigator){
-navigator.serviceWorker.register("sw.js")
-}
+},()=>speedEl.textContent="ERR",{
+enableHighAccuracy:true,
+maximumAge:0,
+timeout:3000
+})
 </script>
+
 </body>
 </html>
