@@ -10,9 +10,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
 
 <style>
+:root{
+--panel:#171717;
+--panel-border:#2b2b2b;
+--btn:#6b6b6b;
+--btn-active:#919191;
+--btn-text:#fff;
+--muted:#8d8d8d;
+--warn:#fff;
+--over:#ff3b30;
+}
+*{box-sizing:border-box}
 body{
 margin:0;
 background:#000;
@@ -32,14 +43,7 @@ flex-direction:column;
 align-items:center;
 justify-content:center;
 text-align:center;
-}
-
-#city{
-position:absolute;
-bottom:20px;
-left:20px;
-font-size:18px;
-color:#777;
+padding:20px;
 }
 
 #speed{
@@ -52,23 +56,56 @@ color:#fff;
 #limit{
 font-size:min(6vw,6vh);
 color:#666;
-margin-top:5px;
+margin-top:6px;
 }
 
-.flipped{
-transform:rotate(180deg) scaleX(-1);
-}
-
-/* NORMAL MODE COLORS ONLY */
-.speed-ok{color:#fff}
-.speed-warn{color:yellow}
-.speed-over{color:red}
-
-/* GPS dots */
-#gps{
+.footer{
 position:absolute;
-bottom:20px;
-right:20px;
+bottom:14px;
+left:12px;
+right:12px;
+display:grid;
+grid-template-columns:1fr auto 1fr;
+align-items:center;
+gap:10px;
+pointer-events:none;
+}
+
+#city{
+font-size:18px;
+color:var(--muted);
+text-align:left;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+
+.controls{
+display:flex;
+gap:8px;
+justify-self:center;
+pointer-events:auto;
+}
+
+.btn{
+appearance:none;
+border:1px solid #969696;
+background:var(--btn);
+color:var(--btn-text);
+min-width:54px;
+height:42px;
+border-radius:12px;
+font-size:16px;
+font-weight:700;
+letter-spacing:.4px;
+padding:0 12px;
+}
+
+.btn:active,
+.btn.active{background:var(--btn-active)}
+
+#gps{
+justify-self:end;
 display:flex;
 gap:4px;
 }
@@ -80,32 +117,127 @@ border-radius:50%;
 background:#333;
 }
 
-/* HUD MODE */
+.flipped{transform:rotate(180deg) scaleX(-1)}
+.speed-ok{color:#fff}
+.speed-warn{color:var(--warn)}
+.speed-over{color:var(--over)}
+
 .hud #limit,
-.hud #gps,
-.hud #city{
-display:none;
-}
+.hud #city,
+.hud .controls,
+.hud #gps{display:none}
 
 .hud #speed{
 font-size:min(90vw,90vh);
 color:#fff !important;
 }
+
+.modal{
+position:fixed;
+inset:0;
+background:rgba(0,0,0,.72);
+display:none;
+align-items:flex-end;
+justify-content:center;
+padding:14px;
+pointer-events:auto;
+}
+.modal.open{display:flex}
+
+.sheet{
+width:min(900px,100%);
+max-height:70vh;
+overflow:auto;
+background:var(--panel);
+border:1px solid var(--panel-border);
+border-radius:18px;
+padding:16px;
+}
+.sheet h2{margin:0 0 12px 0;font-size:22px}
+.row{display:flex;justify-content:space-between;gap:10px;margin:10px 0;align-items:center}
+.field{color:#c7c7c7;font-size:14px}
+.select, .input{
+background:#101010;
+color:#fff;
+border:1px solid #393939;
+border-radius:10px;
+padding:8px 10px;
+font:inherit;
+}
+.list{display:flex;flex-direction:column;gap:10px}
+.card{background:#111;border:1px solid #2b2b2b;border-radius:12px;padding:10px}
+.card-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(70px,1fr));gap:8px;font-size:13px}
+.kpi span{display:block;color:#9f9f9f;font-size:11px}
+.note{font-size:11px;color:#8f8f8f;line-height:1.3}
+
+@media (max-width:640px){
+#speed{font-size:min(40vw,34vh)}
+.footer{left:8px;right:8px;gap:6px}
+.btn{min-width:48px;height:40px;padding:0 10px}
+#city{font-size:15px}
+.kpis{grid-template-columns:repeat(2,minmax(90px,1fr))}
+}
 </style>
 </head>
 
 <body>
-
 <div class="container">
-<div id="city"></div>
-<div id="speed">0</div>
-<div id="limit">--</div>
+  <div id="speed">0</div>
+  <div id="limit">--</div>
 </div>
 
-<div id="gps">
-<div class="dot"></div>
-<div class="dot"></div>
-<div class="dot"></div>
+<div class="footer">
+  <div id="city"></div>
+  <div class="controls">
+    <button id="sessionBtn" class="btn" title="Start/Stop session">▶</button>
+    <button id="historyBtn" class="btn" title="History">H</button>
+    <button id="settingsBtn" class="btn" title="Settings">S</button>
+  </div>
+  <div id="gps">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  </div>
+</div>
+
+<div id="settingsModal" class="modal" aria-hidden="true">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <h2>Settings</h2>
+    <div class="row">
+      <div class="field">Speed warnings</div>
+      <input id="warnToggle" type="checkbox">
+    </div>
+    <div class="row">
+      <div class="field">Warning threshold (white)</div>
+      <select id="warnPct" class="select">
+        <option value="5">5% over limit</option>
+        <option value="10">10% over limit</option>
+        <option value="15">15% over limit</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field">Critical threshold (red)</div>
+      <select id="overPct" class="select">
+        <option value="15">15% over limit</option>
+        <option value="20">20% over limit</option>
+        <option value="25">25% over limit</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field">Units</div>
+      <select id="unitSelect" class="select">
+        <option value="metric">Metric (km/h)</option>
+        <option value="imperial">Imperial (mph)</option>
+      </select>
+    </div>
+    <p class="note">History/settings are cookie-backed with integrity checks to make casual tampering harder (client-side data cannot be made fully tamper-proof).</p>
+  </div>
+</div>
+
+<div id="historyModal" class="modal" aria-hidden="true">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <h2>History</h2>
+    <div id="historyList" class="list"></div>
+  </div>
 </div>
 
 <script>
@@ -113,49 +245,134 @@ const speedEl=document.getElementById("speed")
 const limitEl=document.getElementById("limit")
 const cityEl=document.getElementById("city")
 const dots=[...document.querySelectorAll(".dot")]
+const sessionBtn=document.getElementById("sessionBtn")
+const historyBtn=document.getElementById("historyBtn")
+const settingsBtn=document.getElementById("settingsBtn")
+const settingsModal=document.getElementById("settingsModal")
+const historyModal=document.getElementById("historyModal")
+const historyList=document.getElementById("historyList")
+const warnToggle=document.getElementById("warnToggle")
+const warnPct=document.getElementById("warnPct")
+const overPct=document.getElementById("overPct")
+const unitSelect=document.getElementById("unitSelect")
 
 let hud=false
 let flipped=false
-
-let lastValidSpeed=0
 let gpsLostAt=0
-
 let speedLimit=null
 let lastFetch=0
 let hudBlinkTimer=null
 let hudBlinkToken=0
+let lastPos=null
+let lastTime=null
+let lastCityFetch=0
+let settings={warningsEnabled:true,warnPct:10,overPct:20,unit:"metric"}
+let history=[]
+let watchId=null
 
-// ===== MODE SWITCH =====
-document.body.addEventListener("click",()=>{
-hud=!hud
-flipped=!flipped
+let session={active:false,startTs:null,distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0}
 
-document.body.classList.toggle("hud",hud)
+let mockOverrideUntil=0
+let mockOverrideSpeedKmh=0
 
-speedEl.classList.toggle("flipped",flipped)
-limitEl.classList.toggle("flipped",flipped)
-cityEl.classList.toggle("flipped",flipped)
+let kalmanX=0
+let kalmanP=1
+const kalmanQ=0.9
+const kalmanR=3.5
+let firstGpsFixAt=0
 
-if(!hud){
-stopHudBlink()
-speedEl.style.color=""
+const STORAGE_SALT="speedometer.v1.local"
+
+function toDisplaySpeed(kmh){return settings.unit==="imperial"?kmh*0.621371:kmh}
+function fromLimitToDisplay(kmh){return Math.round(toDisplaySpeed(kmh))}
+function speedUnit(){return settings.unit==="imperial"?"mph":"km/h"}
+
+function signPayload(payload){
+let h=2166136261
+const s=payload+STORAGE_SALT
+for(let i=0;i<s.length;i++){
+h^=s.charCodeAt(i)
+h+=(h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)
 }
-})
+return (h>>>0).toString(16)
+}
 
-function getSpeedTier(speed,limit){
-if(!limit||limit<=0) return "ok"
-const ratio=(speed/limit)*100
-if(ratio>=121) return "over"
-if(ratio>=111) return "warn"
+function setCookie(name,value,days=365){
+const exp=new Date(Date.now()+days*86400000).toUTCString()
+document.cookie=`${name}=${encodeURIComponent(value)}; expires=${exp}; path=/; SameSite=Strict`
+}
+
+function getCookie(name){
+const key=`${name}=`
+return document.cookie.split(";").map(v=>v.trim()).find(v=>v.startsWith(key))?.slice(key.length)||""
+}
+
+function storeSigned(name,obj){
+const payload=JSON.stringify(obj)
+setCookie(name,JSON.stringify({payload,sig:signPayload(payload)}))
+}
+
+function loadSigned(name,fallback){
+try{
+const raw=decodeURIComponent(getCookie(name))
+if(!raw) return fallback
+const parsed=JSON.parse(raw)
+if(!parsed?.payload||!parsed?.sig) return fallback
+if(signPayload(parsed.payload)!==parsed.sig) return fallback
+return JSON.parse(parsed.payload)
+}catch{return fallback}
+}
+
+function persist(){
+storeSigned("spd_settings",settings)
+storeSigned("spd_history",history)
+}
+
+function loadStored(){
+settings={...settings,...loadSigned("spd_settings",settings)}
+history=Array.isArray(loadSigned("spd_history",[]))?loadSigned("spd_history",[]):[]
+applySettingsToUI()
+renderHistory()
+}
+
+function applySettingsToUI(){
+warnToggle.checked=!!settings.warningsEnabled
+warnPct.value=String(settings.warnPct)
+overPct.value=String(settings.overPct)
+unitSelect.value=settings.unit
+}
+
+warnToggle.addEventListener("change",()=>{settings.warningsEnabled=warnToggle.checked;persist()})
+warnPct.addEventListener("change",()=>{
+settings.warnPct=Number(warnPct.value)
+if(settings.overPct<=settings.warnPct){settings.overPct=settings.warnPct+5;overPct.value=String(settings.overPct)}
+persist()
+})
+overPct.addEventListener("change",()=>{
+settings.overPct=Math.max(Number(overPct.value),settings.warnPct+1)
+overPct.value=String(settings.overPct)
+persist()
+})
+unitSelect.addEventListener("change",()=>{settings.unit=unitSelect.value;persist();renderHistory()})
+
+function openModal(el){el.classList.add("open");el.setAttribute("aria-hidden","false")}
+function closeModal(el){el.classList.remove("open");el.setAttribute("aria-hidden","true")}
+settingsModal.addEventListener("click",()=>closeModal(settingsModal))
+historyModal.addEventListener("click",()=>closeModal(historyModal))
+settingsBtn.addEventListener("click",ev=>{ev.stopPropagation();openModal(settingsModal)})
+historyBtn.addEventListener("click",ev=>{ev.stopPropagation();renderHistory();openModal(historyModal)})
+
+function getSpeedTier(speedDisplay,limitDisplay){
+if(!settings.warningsEnabled||!limitDisplay||limitDisplay<=0) return "ok"
+const ratio=(speedDisplay/limitDisplay)*100
+if(ratio>=100+settings.overPct) return "over"
+if(ratio>=100+settings.warnPct) return "warn"
 return "ok"
 }
 
 function stopHudBlink(){
 hudBlinkToken++
-if(hudBlinkTimer){
-clearTimeout(hudBlinkTimer)
-hudBlinkTimer=null
-}
+if(hudBlinkTimer){clearTimeout(hudBlinkTimer);hudBlinkTimer=null}
 }
 
 function runHudBlink(patternMs,token){
@@ -165,76 +382,44 @@ const tick=()=>{
 if(token!==hudBlinkToken||!hud) return
 const phase=patternMs[idx%patternMs.length]
 speedEl.style.color=idx%2===0?"#fff":"transparent"
-hudBlinkTimer=setTimeout(()=>{
-idx++
-tick()
-},phase)
+hudBlinkTimer=setTimeout(()=>{idx++;tick()},phase)
 }
 tick()
 }
 
 function applyHudTier(tier){
-if(tier==="ok"){
-stopHudBlink()
-speedEl.style.color="#fff"
-return
-}
-
+if(tier==="ok"){stopHudBlink();speedEl.style.color="#fff";return}
 const token=++hudBlinkToken
-if(hudBlinkTimer){
-clearTimeout(hudBlinkTimer)
-hudBlinkTimer=null
-}
-if(tier==="warn"){
-// WHITE 150ms, OFF 100ms x3, then WHITE 500ms, repeat
-runHudBlink([150,100,150,100,150,100,500,100],token)
-return
-}
-
-// over: nonstop blink
+if(hudBlinkTimer){clearTimeout(hudBlinkTimer);hudBlinkTimer=null}
+if(tier==="warn"){runHudBlink([180,120,220,120,400,100],token);return}
 runHudBlink([150,100],token)
 }
 
-// ===== GPS SIGNAL =====
 function setDots(acc){
-if(acc<10){
-dots[0].style.background="red"
-dots[1].style.background="#333"
-dots[2].style.background="#333"
-}
-else if(acc<20){
-dots[0].style.background="yellow"
-dots[1].style.background="yellow"
-dots[2].style.background="#333"
-}
-else{
-dots[0].style.background="green"
-dots[1].style.background="green"
-dots[2].style.background="green"
-}
+if(acc<10){dots[0].style.background="red";dots[1].style.background="#333";dots[2].style.background="#333"}
+else if(acc<20){dots[0].style.background="yellow";dots[1].style.background="yellow";dots[2].style.background="#333"}
+else{dots[0].style.background="green";dots[1].style.background="green";dots[2].style.background="green"}
 }
 
-// ===== SPEED LIMIT =====
 async function fetchSpeedLimit(lat,lon){
 const now=Date.now()
-if(now-lastFetch<5000) return speedLimit
+if(now-lastFetch<15000) return speedLimit
 lastFetch=now
-
 const q=`[out:json];way(around:60,${lat},${lon})["maxspeed"];out tags;`
-
 try{
 const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:q})
 const d=await r.json()
-
 if(d.elements?.length){
-speedLimit=parseInt(d.elements[0].tags.maxspeed)
+const raw=String(d.elements[0].tags.maxspeed||"")
+const n=parseInt(raw,10)
+if(Number.isFinite(n)){
+speedLimit=/mph/i.test(raw)?Math.round(n*1.60934):n
+}
 }
 }catch{}
-
 return speedLimit
 }
 
-// ===== DIST =====
 function getDistance(a,b,c,d){
 const R=6371000,toRad=x=>x*Math.PI/180
 const dLat=toRad(c-a),dLon=toRad(d-b)
@@ -242,97 +427,223 @@ const x=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/
 return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))
 }
 
-let lastPos=null
-let lastTime=null
-
-navigator.geolocation.watchPosition(async pos=>{
-const now=Date.now()
-const c=pos.coords
-
-setDots(c.accuracy)
-
-// ===== SPEED CALC =====
-let speed=0
-
-if(c.speed!=null){
-speed=c.speed*3.6
-}else if(lastPos){
-const dist=getDistance(lastPos.latitude,lastPos.longitude,c.latitude,c.longitude)
-const dt=(now-lastTime)/1000
-speed=(dist/dt)*3.6
+function applyKalman(z){
+kalmanP+=kalmanQ
+const k=kalmanP/(kalmanP+kalmanR)
+kalmanX+=k*(z-kalmanX)
+kalmanP*=(1-k)
+return kalmanX
 }
 
-// ===== HOLD GPS =====
-if(speed>0){
-lastValidSpeed=speed
-gpsLostAt=0
-}else{
-if(!gpsLostAt) gpsLostAt=now
+function getSmoothedSpeed(rawKmh,now){
+if(!firstGpsFixAt) firstGpsFixAt=now
+if(now<mockOverrideUntil) return mockOverrideSpeedKmh
+const filtered=applyKalman(rawKmh)
+const elapsed=now-firstGpsFixAt
+if(elapsed<=3000) return rawKmh
+if(elapsed<=5000){
+const t=(elapsed-3000)/2000
+return rawKmh*(1-t)+filtered*t
+}
+return filtered
+}
 
-if(now-gpsLostAt<3000){
-speed=lastValidSpeed
-}else{
-speedEl.textContent="🚫 GPS"
+window.setSpeed=function setSpeed(speed){
+const n=Number(speed)
+if(!Number.isFinite(n)||n<0) return false
+const asKmh=settings.unit==="imperial"?n*1.60934:n
+mockOverrideSpeedKmh=asKmh
+mockOverrideUntil=Date.now()+5000
+return true
+}
+
+function updateSession(kmh,coords,now){
+if(!session.active) return
+if(lastPos&&lastTime){
+const dist=getDistance(lastPos.latitude,lastPos.longitude,coords.latitude,coords.longitude)
+if(Number.isFinite(dist)&&dist>0&&dist<350) session.distanceM+=dist
+}
+session.maxSpeedKmh=Math.max(session.maxSpeedKmh,kmh)
+session.samples++
+session.sumSpeedKmh+=kmh
+session.lastTs=now
+}
+
+function renderHistory(){
+historyList.innerHTML=""
+if(!history.length){
+historyList.innerHTML='<div class="card">No trips yet. Press ▶ to start, ■ to stop.</div>'
 return
 }
+for(const item of [...history].reverse()){
+const card=document.createElement("div")
+card.className="card"
+card.innerHTML=`
+<div class="card-title">
+<input class="input" value="${(item.name||"").replace(/"/g,"&quot;")}" placeholder="Trip name" data-id="${item.id}">
+<div class="field">${new Date(item.endedAt).toLocaleString()}</div>
+</div>
+<div class="kpis">
+<div class="kpi"><span>Max</span>${Math.round(toDisplaySpeed(item.maxSpeedKmh))} ${speedUnit()}</div>
+<div class="kpi"><span>Avg</span>${Math.round(toDisplaySpeed(item.avgSpeedKmh))} ${speedUnit()}</div>
+<div class="kpi"><span>Distance</span>${formatDistance(item.distanceM)}</div>
+<div class="kpi"><span>Time</span>${formatDuration(item.durationMs)}</div>
+</div>`
+historyList.appendChild(card)
 }
-
-// =========================
-// IMPORTANT FIX:
-// ALWAYS update speed text FIRST
-// =========================
-speedEl.textContent=Math.round(speed)
-
-// ===== NORMAL MODE =====
-if(!hud){
-
-let limit=await fetchSpeedLimit(c.latitude,c.longitude)
-limitEl.textContent=limit?limit:"50"
-speedEl.style.color=""
-
-// COLORS (NORMAL ONLY)
-speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-
-const tier=getSpeedTier(speed,limit)
-if(tier==="over") speedEl.classList.add("speed-over")
-else if(tier==="warn") speedEl.classList.add("speed-warn")
-else speedEl.classList.add("speed-ok")
-
-// CITY
-getCity(c.latitude,c.longitude).then(city=>{
-if(city) cityEl.textContent=city
+historyList.querySelectorAll("input[data-id]").forEach(inp=>{
+inp.addEventListener("change",()=>{
+const id=inp.dataset.id
+const t=history.find(x=>x.id===id)
+if(t){t.name=inp.value.slice(0,80);persist()}
+})
 })
 }
 
-// ===== HUD MODE =====
-if(hud){
+function formatDistance(m){
+if(settings.unit==="imperial") return `${(m/1609.344).toFixed(2)} mi`
+return m>=1000?`${(m/1000).toFixed(2)} km`:`${Math.round(m)} m`
+}
+
+function formatDuration(ms){
+const s=Math.max(0,Math.round(ms/1000))
+const h=Math.floor(s/3600)
+const m=Math.floor((s%3600)/60)
+const sec=s%60
+if(h) return `${h}h ${m}m ${sec}s`
+if(m) return `${m}m ${sec}s`
+return `${sec}s`
+}
+
+function startSession(){
+session={active:true,startTs:Date.now(),distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0,lastTs:Date.now()}
+sessionBtn.textContent="■"
+sessionBtn.classList.add("active")
+}
+
+function stopSession(){
+if(!session.active) return
+const endedAt=Date.now()
+const durationMs=Math.max(endedAt-session.startTs,0)
+const avgSpeedKmh=session.samples?session.sumSpeedKmh/session.samples:0
+history.push({
+id:crypto.randomUUID?crypto.randomUUID():String(endedAt),
+name:"",
+endedAt,
+maxSpeedKmh:session.maxSpeedKmh,
+avgSpeedKmh,
+distanceM:session.distanceM,
+durationMs
+})
+history=history.slice(-150)
+persist()
+renderHistory()
+session={active:false,startTs:null,distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0}
+sessionBtn.textContent="▶"
+sessionBtn.classList.remove("active")
+}
+
+sessionBtn.addEventListener("click",ev=>{
+ev.stopPropagation()
+session.active?stopSession():startSession()
+})
+
+function toggleHud(){
+hud=!hud
+flipped=!flipped
+if(settingsModal.classList.contains("open")||historyModal.classList.contains("open")) return
+
+document.body.classList.toggle("hud",hud)
+speedEl.classList.toggle("flipped",flipped)
+limitEl.classList.toggle("flipped",flipped)
+cityEl.classList.toggle("flipped",flipped)
+if(!hud){stopHudBlink();speedEl.style.color=""}
+}
+
+document.body.addEventListener("click",()=>toggleHud())
+
+async function getCity(lat,lon){
+const now=Date.now()
+if(now-lastCityFetch<30000) return cityEl.textContent
+lastCityFetch=now
+try{
+const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+const data=await res.json()
+return data.address.city||data.address.town||data.address.village||""
+}catch{return ""}
+}
+
+async function onPosition(pos){
+const now=Date.now()
+const c=pos.coords
+setDots(c.accuracy)
+
+let rawKmh=0
+if(c.speed!=null&&Number.isFinite(c.speed)&&c.speed>=0){
+rawKmh=c.speed*3.6
+}else if(lastPos&&lastTime){
+const dist=getDistance(lastPos.latitude,lastPos.longitude,c.latitude,c.longitude)
+const dt=(now-lastTime)/1000
+rawKmh=dt>0?(dist/dt)*3.6:0
+}
+
+if(rawKmh>0){gpsLostAt=0}else{
+if(!gpsLostAt) gpsLostAt=now
+if(now-gpsLostAt>3000){speedEl.textContent="🚫 GPS";return}
+}
+
+const kmh=getSmoothedSpeed(rawKmh,now)
+updateSession(kmh,c,now)
+const speedDisplay=Math.round(toDisplaySpeed(kmh))
+speedEl.textContent=speedDisplay
+
+let limitKmh=await fetchSpeedLimit(c.latitude,c.longitude)
+if(!limitKmh) limitKmh=50
+const limitDisplay=fromLimitToDisplay(limitKmh)
+limitEl.textContent=`${limitDisplay} ${speedUnit()}`
+
+const tier=getSpeedTier(speedDisplay,limitDisplay)
+if(!hud){
+speedEl.style.color=""
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-const limit=await fetchSpeedLimit(c.latitude,c.longitude)
-const tier=getSpeedTier(speed,limit)
+if(tier==="over") speedEl.classList.add("speed-over")
+else if(tier==="warn") speedEl.classList.add("speed-warn")
+else speedEl.classList.add("speed-ok")
+getCity(c.latitude,c.longitude).then(city=>{if(city) cityEl.textContent=city})
+}else{
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
 applyHudTier(tier)
 }
 
 lastPos=c
 lastTime=now
-
-},()=>speedEl.textContent="🚫 GPS",{
-enableHighAccuracy:true,
-maximumAge:0,
-timeout:3000
-})
-
-// ===== CITY =====
-async function getCity(lat,lon){
-try{
-const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
-const data=await res.json()
-return data.address.city || data.address.town || data.address.village || ""
-}catch{return ""}
 }
+
+function startTracking(){
+if(!navigator.geolocation) return
+watchId=navigator.geolocation.watchPosition(onPosition,()=>speedEl.textContent="🚫 GPS",{
+enableHighAccuracy:true,
+maximumAge:1000,
+timeout:5000
+})
+}
+
+let wakeLock=null
+async function requestWakeLock(){
+if(!("wakeLock" in navigator)) return
+try{wakeLock=await navigator.wakeLock.request("screen")}catch{}
+}
+document.addEventListener("visibilitychange",()=>{
+if(document.visibilityState==="visible") requestWakeLock()
+})
 
 if("serviceWorker" in navigator){
 navigator.serviceWorker.register("./sw.js").catch(()=>{})
 }
+
+loadStored()
+startTracking()
+requestWakeLock()
 </script>
 
 </body>
