@@ -404,7 +404,7 @@ if(tier==="warn"){runHudBlink([150,100,150,100,150,500],token);return}
 runHudBlink([150,100],token)
 }
 
-function renderReadout(speedKmh=currentSpeedKmh){
+function renderReadout(speedKmh=currentSpeedKmh,opts={}){
 const speedDisplay=Math.round(toDisplaySpeed(speedKmh))
 speedEl.textContent=speedDisplay
 
@@ -413,6 +413,7 @@ const limitDisplay=fromLimitToDisplay(limitKmh)
 limitEl.textContent=`${limitDisplay} ${speedUnit()}`
 
 const tier=getSpeedTier(speedDisplay,limitDisplay)
+const disableHudAnimation=!!opts.disableHudAnimation
 if(!hud){
 speedEl.style.color=""
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
@@ -421,8 +422,22 @@ else if(tier==="warn") speedEl.classList.add("speed-warn")
 else speedEl.classList.add("speed-ok")
 }else{
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+if(disableHudAnimation){
+stopHudBlink()
+if(tier==="over") speedEl.style.color="var(--over)"
+else speedEl.style.color="#fff"
+}else{
 applyHudTier(tier)
 }
+}
+}
+
+window.setSpeedLimitKMH=function setSpeedLimitKMH(limitKmh){
+const n=Number(limitKmh)
+if(!Number.isFinite(n)||n<=0) return false
+speedLimit=Math.round(n)
+renderReadout()
+return true
 }
 
 function setDots(acc){
@@ -485,12 +500,17 @@ const lockMs=Number.isFinite(opts.lockMs)?Math.max(0,opts.lockMs):5000
 const unit=opts.unit||settings.unit
 const asKmh=unit==="imperial"?n*1.60934:n
 const now=Date.now()
+const disableHudAnimation=source!=="gps"&&opts.animate!==true
+
+if(Number.isFinite(opts.speedLimitKmh)){
+window.setSpeedLimitKMH(opts.speedLimitKmh)
+}
 
 if(source==="gps"){
 latestGpsSpeedKmh=asKmh
 if(now<speedLockUntil) return true
 currentSpeedKmh=asKmh
-renderReadout(asKmh)
+renderReadout(asKmh,{disableHudAnimation})
 return true
 }
 
@@ -502,7 +522,7 @@ speedLockUntil=0
 currentSpeedKmh=latestGpsSpeedKmh
 renderReadout(currentSpeedKmh)
 },lockMs)
-renderReadout(asKmh)
+renderReadout(asKmh,{disableHudAnimation})
 return true
 }
 window.setSpeeed=window.setSpeed
