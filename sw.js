@@ -1,4 +1,4 @@
-const CACHE = "speedometer-v1";
+const CACHE = "speedometer-hud";
 
 self.addEventListener("install", e => {
   e.waitUntil(
