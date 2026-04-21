@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
 <style>
 :root{
@@ -100,6 +101,7 @@ font-weight:700;
 letter-spacing:.4px;
 padding:0 12px;
 }
+.btn i{pointer-events:none}
 
 .btn:active,
 .btn.active{background:var(--btn-active)}
@@ -190,9 +192,9 @@ font:inherit;
 <div class="footer">
   <div id="city"></div>
   <div class="controls">
-    <button id="sessionBtn" class="btn" title="Start/Stop session">▶</button>
-    <button id="historyBtn" class="btn" title="History">H</button>
-    <button id="settingsBtn" class="btn" title="Settings">S</button>
+    <button id="sessionBtn" class="btn" title="Start trip"><i class="fa-solid fa-play" aria-hidden="true"></i></button>
+    <button id="historyBtn" class="btn" title="Trips"><i class="fa-solid fa-plane" aria-hidden="true"></i></button>
+    <button id="settingsBtn" class="btn" title="Settings"><i class="fa-solid fa-cog" aria-hidden="true"></i></button>
   </div>
   <div id="gps">
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
@@ -229,7 +231,7 @@ font:inherit;
         <option value="imperial">Imperial (mph)</option>
       </select>
     </div>
-    <p class="note">History/settings are cookie-backed with integrity checks to make casual tampering harder (client-side data cannot be made fully tamper-proof).</p>
+    <p class="note">Deleting cookies permanently removes all trips and settings data.</p>
   </div>
 </div>
 
@@ -269,6 +271,7 @@ let lastCityFetch=0
 let settings={warningsEnabled:true,warnPct:10,overPct:20,unit:"metric"}
 let history=[]
 let watchId=null
+let currentSpeedKmh=0
 
 let session={active:false,startTs:null,distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0}
 
@@ -353,7 +356,12 @@ settings.overPct=Math.max(Number(overPct.value),settings.warnPct+1)
 overPct.value=String(settings.overPct)
 persist()
 })
-unitSelect.addEventListener("change",()=>{settings.unit=unitSelect.value;persist();renderHistory()})
+unitSelect.addEventListener("change",()=>{
+settings.unit=unitSelect.value
+persist()
+renderReadout()
+renderHistory()
+})
 
 function openModal(el){el.classList.add("open");el.setAttribute("aria-hidden","false")}
 function closeModal(el){el.classList.remove("open");el.setAttribute("aria-hidden","true")}
@@ -393,6 +401,27 @@ const token=++hudBlinkToken
 if(hudBlinkTimer){clearTimeout(hudBlinkTimer);hudBlinkTimer=null}
 if(tier==="warn"){runHudBlink([180,120,220,120,400,100],token);return}
 runHudBlink([150,100],token)
+}
+
+function renderReadout(){
+const speedDisplay=Math.round(toDisplaySpeed(currentSpeedKmh))
+speedEl.textContent=speedDisplay
+
+const limitKmh=speedLimit||50
+const limitDisplay=fromLimitToDisplay(limitKmh)
+limitEl.textContent=`${limitDisplay} ${speedUnit()}`
+
+const tier=getSpeedTier(speedDisplay,limitDisplay)
+if(!hud){
+speedEl.style.color=""
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+if(tier==="over") speedEl.classList.add("speed-over")
+else if(tier==="warn") speedEl.classList.add("speed-warn")
+else speedEl.classList.add("speed-ok")
+}else{
+speedEl.classList.remove("speed-ok","speed-warn","speed-over")
+applyHudTier(tier)
+}
 }
 
 function setDots(acc){
@@ -454,6 +483,8 @@ if(!Number.isFinite(n)||n<0) return false
 const asKmh=settings.unit==="imperial"?n*1.60934:n
 mockOverrideSpeedKmh=asKmh
 mockOverrideUntil=Date.now()+5000
+currentSpeedKmh=asKmh
+renderReadout()
 return true
 }
 
@@ -472,7 +503,7 @@ session.lastTs=now
 function renderHistory(){
 historyList.innerHTML=""
 if(!history.length){
-historyList.innerHTML='<div class="card">No trips yet. Press ▶ to start, ■ to stop.</div>'
+historyList.innerHTML='<div class="card">No trips yet. Press start to begin and stop to finish a trip.</div>'
 return
 }
 for(const item of [...history].reverse()){
@@ -517,7 +548,8 @@ return `${sec}s`
 
 function startSession(){
 session={active:true,startTs:Date.now(),distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0,lastTs:Date.now()}
-sessionBtn.textContent="■"
+sessionBtn.innerHTML='<i class="fa-solid fa-stop" aria-hidden="true"></i>'
+sessionBtn.title="Stop trip"
 sessionBtn.classList.add("active")
 }
 
@@ -539,7 +571,8 @@ history=history.slice(-150)
 persist()
 renderHistory()
 session={active:false,startTs:null,distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0}
-sessionBtn.textContent="▶"
+sessionBtn.innerHTML='<i class="fa-solid fa-play" aria-hidden="true"></i>'
+sessionBtn.title="Start trip"
 sessionBtn.classList.remove("active")
 }
 
@@ -593,26 +626,15 @@ if(now-gpsLostAt>3000){speedEl.textContent="🚫 GPS";return}
 }
 
 const kmh=getSmoothedSpeed(rawKmh,now)
+currentSpeedKmh=kmh
 updateSession(kmh,c,now)
-const speedDisplay=Math.round(toDisplaySpeed(kmh))
-speedEl.textContent=speedDisplay
 
-let limitKmh=await fetchSpeedLimit(c.latitude,c.longitude)
-if(!limitKmh) limitKmh=50
-const limitDisplay=fromLimitToDisplay(limitKmh)
-limitEl.textContent=`${limitDisplay} ${speedUnit()}`
+const limitKmh=await fetchSpeedLimit(c.latitude,c.longitude)
+if(limitKmh) speedLimit=limitKmh
 
-const tier=getSpeedTier(speedDisplay,limitDisplay)
+renderReadout()
 if(!hud){
-speedEl.style.color=""
-speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-if(tier==="over") speedEl.classList.add("speed-over")
-else if(tier==="warn") speedEl.classList.add("speed-warn")
-else speedEl.classList.add("speed-ok")
 getCity(c.latitude,c.longitude).then(city=>{if(city) cityEl.textContent=city})
-}else{
-speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-applyHudTier(tier)
 }
 
 lastPos=c
