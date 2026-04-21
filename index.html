@@ -21,7 +21,7 @@
 --btn-active:#919191;
 --btn-text:#fff;
 --muted:#8d8d8d;
---warn:#fff;
+--warn:#ffd60a;
 --over:#ff3b30;
 }
 *{box-sizing:border-box}
@@ -346,16 +346,18 @@ overPct.value=String(settings.overPct)
 unitSelect.value=settings.unit
 }
 
-warnToggle.addEventListener("change",()=>{settings.warningsEnabled=warnToggle.checked;persist()})
+warnToggle.addEventListener("change",()=>{settings.warningsEnabled=warnToggle.checked;persist();renderReadout()})
 warnPct.addEventListener("change",()=>{
 settings.warnPct=Number(warnPct.value)
 if(settings.overPct<=settings.warnPct){settings.overPct=settings.warnPct+5;overPct.value=String(settings.overPct)}
 persist()
+renderReadout()
 })
 overPct.addEventListener("change",()=>{
 settings.overPct=Math.max(Number(overPct.value),settings.warnPct+1)
 overPct.value=String(settings.overPct)
 persist()
+renderReadout()
 })
 unitSelect.addEventListener("change",()=>{
 settings.unit=unitSelect.value
@@ -374,8 +376,10 @@ historyBtn.addEventListener("click",ev=>{ev.stopPropagation();renderHistory();op
 function getSpeedTier(speedDisplay,limitDisplay){
 if(!settings.warningsEnabled||!limitDisplay||limitDisplay<=0) return "ok"
 const ratio=(speedDisplay/limitDisplay)*100
-if(ratio>=121) return "over"
-if(ratio>=111) return "warn"
+const warnThreshold=100+Number(settings.warnPct||0)
+const overThreshold=100+Number(settings.overPct||0)
+if(ratio>=overThreshold) return "over"
+if(ratio>=warnThreshold) return "warn"
 return "ok"
 }
 
@@ -400,17 +404,17 @@ function applyHudTier(tier){
 if(tier==="ok"){stopHudBlink();speedEl.style.color="#fff";return}
 const token=++hudBlinkToken
 if(hudBlinkTimer){clearTimeout(hudBlinkTimer);hudBlinkTimer=null}
-if(tier==="warn"){runHudBlink([150,100,150,100,150,500],token);return}
-runHudBlink([150,100],token)
+if(tier==="warn"){runHudBlink([160,180,160,520,160,180,160,520],token);return}
+runHudBlink([120,120,120,120,120,120,120,260],token)
 }
 
 function renderReadout(speedKmh=currentSpeedKmh,opts={}){
 const speedDisplay=Math.round(toDisplaySpeed(speedKmh))
 speedEl.textContent=speedDisplay
 
-const limitKmh=speedLimit||50
-const limitDisplay=fromLimitToDisplay(limitKmh)
-limitEl.textContent=`${limitDisplay} ${speedUnit()}`
+const hasLimit=Number.isFinite(speedLimit)&&speedLimit>0
+const limitDisplay=hasLimit?fromLimitToDisplay(speedLimit):null
+limitEl.textContent=hasLimit?`${limitDisplay} ${speedUnit()}`:"--"
 
 const tier=getSpeedTier(speedDisplay,limitDisplay)
 const disableHudAnimation=!!opts.disableHudAnimation
@@ -424,8 +428,7 @@ else speedEl.classList.add("speed-ok")
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
 if(disableHudAnimation){
 stopHudBlink()
-if(tier==="over") speedEl.style.color="var(--over)"
-else speedEl.style.color="#fff"
+speedEl.style.color="#fff"
 }else{
 applyHudTier(tier)
 }
@@ -680,7 +683,10 @@ window.setSpeed(kmh,{source:"gps",lockMs:0,unit:"metric"})
 updateSession(kmh,c,now)
 
 const limitKmh=await fetchSpeedLimit(c.latitude,c.longitude)
-if(limitKmh) speedLimit=limitKmh
+if(limitKmh){
+speedLimit=limitKmh
+renderReadout(currentSpeedKmh,{disableHudAnimation:false})
+}
 
 if(!hud){
 getCity(c.latitude,c.longitude).then(city=>{if(city) cityEl.textContent=city})
