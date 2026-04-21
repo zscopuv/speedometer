@@ -122,6 +122,8 @@ let gpsLostAt=0
 
 let speedLimit=null
 let lastFetch=0
+let hudBlinkTimer=null
+let hudBlinkToken=0
 
 // ===== MODE SWITCH =====
 document.body.addEventListener("click",()=>{
@@ -133,7 +135,65 @@ document.body.classList.toggle("hud",hud)
 speedEl.classList.toggle("flipped",flipped)
 limitEl.classList.toggle("flipped",flipped)
 cityEl.classList.toggle("flipped",flipped)
+
+if(!hud){
+stopHudBlink()
+speedEl.style.color=""
+}
 })
+
+function getSpeedTier(speed,limit){
+if(!limit||limit<=0) return "ok"
+const ratio=(speed/limit)*100
+if(ratio>=121) return "over"
+if(ratio>=111) return "warn"
+return "ok"
+}
+
+function stopHudBlink(){
+hudBlinkToken++
+if(hudBlinkTimer){
+clearTimeout(hudBlinkTimer)
+hudBlinkTimer=null
+}
+}
+
+function runHudBlink(patternMs,token){
+if(token!==hudBlinkToken||!hud) return
+let idx=0
+const tick=()=>{
+if(token!==hudBlinkToken||!hud) return
+const phase=patternMs[idx%patternMs.length]
+speedEl.style.color=idx%2===0?"#fff":"transparent"
+hudBlinkTimer=setTimeout(()=>{
+idx++
+tick()
+},phase)
+}
+tick()
+}
+
+function applyHudTier(tier){
+if(tier==="ok"){
+stopHudBlink()
+speedEl.style.color="#fff"
+return
+}
+
+const token=++hudBlinkToken
+if(hudBlinkTimer){
+clearTimeout(hudBlinkTimer)
+hudBlinkTimer=null
+}
+if(tier==="warn"){
+// WHITE 150ms, OFF 100ms x3, then WHITE 500ms, repeat
+runHudBlink([150,100,150,100,150,100,500,100],token)
+return
+}
+
+// over: nonstop blink
+runHudBlink([150,100],token)
+}
 
 // ===== GPS SIGNAL =====
 function setDots(acc){
@@ -228,18 +288,15 @@ if(!hud){
 
 let limit=await fetchSpeedLimit(c.latitude,c.longitude)
 limitEl.textContent=limit?limit:"50"
+speedEl.style.color=""
 
 // COLORS (NORMAL ONLY)
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
 
-if(limit){
-const diff=speed-limit
-if(diff>=11) speedEl.classList.add("speed-over")
-else if(diff>=1) speedEl.classList.add("speed-warn")
+const tier=getSpeedTier(speed,limit)
+if(tier==="over") speedEl.classList.add("speed-over")
+else if(tier==="warn") speedEl.classList.add("speed-warn")
 else speedEl.classList.add("speed-ok")
-}else{
-speedEl.classList.add("speed-ok")
-}
 
 // CITY
 getCity(c.latitude,c.longitude).then(city=>{
@@ -248,10 +305,11 @@ if(city) cityEl.textContent=city
 }
 
 // ===== HUD MODE =====
-// FORCE WHITE ALWAYS
 if(hud){
 speedEl.classList.remove("speed-ok","speed-warn","speed-over")
-speedEl.style.color="#fff"
+const limit=await fetchSpeedLimit(c.latitude,c.longitude)
+const tier=getSpeedTier(speed,limit)
+applyHudTier(tier)
 }
 
 lastPos=c
@@ -270,6 +328,10 @@ const res=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&l
 const data=await res.json()
 return data.address.city || data.address.town || data.address.village || ""
 }catch{return ""}
+}
+
+if("serviceWorker" in navigator){
+navigator.serviceWorker.register("./sw.js").catch(()=>{})
 }
 </script>
 
