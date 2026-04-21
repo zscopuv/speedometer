@@ -272,11 +272,12 @@ let settings={warningsEnabled:true,warnPct:10,overPct:20,unit:"metric"}
 let history=[]
 let watchId=null
 let currentSpeedKmh=0
+let latestGpsSpeedKmh=0
 
 let session={active:false,startTs:null,distanceM:0,maxSpeedKmh:0,samples:0,sumSpeedKmh:0}
 
-let mockOverrideUntil=0
-let mockOverrideSpeedKmh=0
+let speedLockUntil=0
+let speedLockTimer=null
 
 let kalmanX=0
 let kalmanP=1
@@ -373,8 +374,8 @@ historyBtn.addEventListener("click",ev=>{ev.stopPropagation();renderHistory();op
 function getSpeedTier(speedDisplay,limitDisplay){
 if(!settings.warningsEnabled||!limitDisplay||limitDisplay<=0) return "ok"
 const ratio=(speedDisplay/limitDisplay)*100
-if(ratio>=100+settings.overPct) return "over"
-if(ratio>=100+settings.warnPct) return "warn"
+if(ratio>=121) return "over"
+if(ratio>=111) return "warn"
 return "ok"
 }
 
@@ -399,12 +400,12 @@ function applyHudTier(tier){
 if(tier==="ok"){stopHudBlink();speedEl.style.color="#fff";return}
 const token=++hudBlinkToken
 if(hudBlinkTimer){clearTimeout(hudBlinkTimer);hudBlinkTimer=null}
-if(tier==="warn"){runHudBlink([180,120,220,120,400,100],token);return}
+if(tier==="warn"){runHudBlink([150,100,150,100,150,500],token);return}
 runHudBlink([150,100],token)
 }
 
-function renderReadout(){
-const speedDisplay=Math.round(toDisplaySpeed(currentSpeedKmh))
+function renderReadout(speedKmh=currentSpeedKmh){
+const speedDisplay=Math.round(toDisplaySpeed(speedKmh))
 speedEl.textContent=speedDisplay
 
 const limitKmh=speedLimit||50
@@ -466,7 +467,6 @@ return kalmanX
 
 function getSmoothedSpeed(rawKmh,now){
 if(!firstGpsFixAt) firstGpsFixAt=now
-if(now<mockOverrideUntil) return mockOverrideSpeedKmh
 const filtered=applyKalman(rawKmh)
 const elapsed=now-firstGpsFixAt
 if(elapsed<=3000) return rawKmh
@@ -477,16 +477,35 @@ return rawKmh*(1-t)+filtered*t
 return filtered
 }
 
-window.setSpeed=function setSpeed(speed){
+window.setSpeed=function setSpeed(speed,opts={}){
 const n=Number(speed)
 if(!Number.isFinite(n)||n<0) return false
-const asKmh=settings.unit==="imperial"?n*1.60934:n
-mockOverrideSpeedKmh=asKmh
-mockOverrideUntil=Date.now()+5000
+const source=opts.source||"manual"
+const lockMs=Number.isFinite(opts.lockMs)?Math.max(0,opts.lockMs):5000
+const unit=opts.unit||settings.unit
+const asKmh=unit==="imperial"?n*1.60934:n
+const now=Date.now()
+
+if(source==="gps"){
+latestGpsSpeedKmh=asKmh
+if(now<speedLockUntil) return true
 currentSpeedKmh=asKmh
-renderReadout()
+renderReadout(asKmh)
 return true
 }
+
+currentSpeedKmh=asKmh
+speedLockUntil=now+lockMs
+if(speedLockTimer) clearTimeout(speedLockTimer)
+speedLockTimer=setTimeout(()=>{
+speedLockUntil=0
+currentSpeedKmh=latestGpsSpeedKmh
+renderReadout(currentSpeedKmh)
+},lockMs)
+renderReadout(asKmh)
+return true
+}
+window.setSpeeed=window.setSpeed
 
 function updateSession(kmh,coords,now){
 if(!session.active) return
@@ -512,7 +531,10 @@ card.className="card"
 card.innerHTML=`
 <div class="card-title">
 <input class="input" value="${(item.name||"").replace(/"/g,"&quot;")}" placeholder="Trip name" data-id="${item.id}">
+<div style="display:flex;align-items:center;gap:8px;">
 <div class="field">${new Date(item.endedAt).toLocaleString()}</div>
+<button class="btn delete-trip" data-delete-id="${item.id}" title="Delete trip"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+</div>
 </div>
 <div class="kpis">
 <div class="kpi"><span>Max</span>${Math.round(toDisplaySpeed(item.maxSpeedKmh))} ${speedUnit()}</div>
@@ -527,6 +549,14 @@ inp.addEventListener("change",()=>{
 const id=inp.dataset.id
 const t=history.find(x=>x.id===id)
 if(t){t.name=inp.value.slice(0,80);persist()}
+})
+})
+historyList.querySelectorAll("button[data-delete-id]").forEach(btn=>{
+btn.addEventListener("click",()=>{
+const id=btn.dataset.deleteId
+history=history.filter(t=>t.id!==id)
+persist()
+renderHistory()
 })
 })
 }
@@ -626,13 +656,12 @@ if(now-gpsLostAt>3000){speedEl.textContent="🚫 GPS";return}
 }
 
 const kmh=getSmoothedSpeed(rawKmh,now)
-currentSpeedKmh=kmh
+window.setSpeed(kmh,{source:"gps",lockMs:0,unit:"metric"})
 updateSession(kmh,c,now)
 
 const limitKmh=await fetchSpeedLimit(c.latitude,c.longitude)
 if(limitKmh) speedLimit=limitKmh
 
-renderReadout()
 if(!hud){
 getCity(c.latitude,c.longitude).then(city=>{if(city) cityEl.textContent=city})
 }
